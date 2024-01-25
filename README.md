@@ -39,6 +39,21 @@ The following datasets have been obtained from the open-source University Califo
      * Variables: 12 (12 numerical, 0 categorical).
      * 123 Kb, 382 Kb; 1,599 records, 4,898 records (red and white, respectively).
   * Yeast
+  * King County housing
+     * Variables 19 (12 numerical, 7 categorical).
+     * This dataset contains house sale prices for King County, which includes Seattle. It includes homes sold between May 2014 and May 2015.
+  * Loan default
+     * Variables 32 (24 numerical, 8 categorical).
+     * Anonymised Loan Default data, including loan amount, term, Interest rate, installment, employment length, home ownership, annual income, loan status and purpose, etc. as well as the binary repay_fail (1 or 0).
+  * Customer churn
+     * Variables 14 (9 numerical, 5 categorical).
+     * This dataset is randomly collected from an Iranian telecom company's database over a period of 12 months.
+  * Iran housing
+     * Variables 6 (3 numerical, 3 categorical).
+  * Bank marketing campaign
+     * Variables 21 (11 numerical, 10 categorical).
+     * The data is related to direct marketing campaigns of a Portuguese banking institution. The marketing campaigns were based on phone calls. Often, more than one contact to the same client was required, in order to assess if the product (bank term deposit) would be ('yes') or not ('no') subscribed. 
+
 
 ## Pipeline
 The imputation methods are incorporated into a single pipeline, with functionality for cross-validation and encoding of categorical variables (either 'label' or 'one-hot' encoding). The pipeline may be run with any dataset, specifying the fraction(s) of missingness and the repeats. From this, both the imputation error (either MSE, misclassication rate, or 'mix' error) is calculated along with the performance of a downstream task (either RF-classifier or RF-regressor).
