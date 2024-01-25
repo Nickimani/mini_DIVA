@@ -25,6 +25,8 @@ datapath = "./datasets/"
 
 
 def read_dataset(dataset="iris", datapath=datapath):
+    # Xinds indicates the positions of the independent variables
+    # yind shows the index (in terms of columns) of the target variable
     if dataset == "iris":
         data = pd.read_csv(datapath + "Iris.csv")
         data = data.dropna().reset_index(drop=True)
@@ -89,6 +91,40 @@ def read_dataset(dataset="iris", datapath=datapath):
         data = data.dropna().reset_index(drop=True)
         Xinds = list(range(0, 9))
         yind = 9
+        
+    # new data will be added to the initial DIVA
+    elif dataset == "king_county":
+        # 21 columns, first 2 are unneccessary, 3rd is target
+        data = pd.read_csv(datapath + "King_county.csv")
+        data = data.dropna().reset_index(drop=True)
+        Xinds = list(range(3, 21))
+        yind = 2
+        
+    elif dataset == "loan":
+        # 36 columns, first 4 are unneccessary
+        data = pd.read_csv(datapath + "Loan_default.csv")
+        data = data.dropna().reset_index(drop=True)
+        Xinds = list(range(4, 35))
+        yind = 35
+        
+    elif dataset == "churn":
+        data = pd.read_csv(datapath + "Customer_churn.csv")
+        data = data.dropna().reset_index(drop=True)
+        Xinds = list(range(13))
+        yind = 13
+        
+    elif dataset == "iran":
+        data = pd.read_csv(datapath + "Iran_houses.csv")
+        data = data.dropna().reset_index(drop=True)
+        Xinds = list(range(1, 6))
+        yind = 6
+        
+    elif dataset == "marketing":
+        data = pd.read_csv(datapath + "Bank_marketing.csv", sep=";")
+        data = data.dropna().reset_index(drop=True)
+        Xinds = list(range(20))
+        yind = 20
+        
 
     X, y = data.iloc[:, Xinds], data.iloc[:, yind]
 
@@ -550,7 +586,8 @@ def train_impute_classifier(
             method=impute_method,
             random_state=random_state,
         )
-
+        
+        # return the error in the data for each iteration in the for loop
         error[i] = evaluate_imputation(
             X,
             X_imp.iloc[test_idx],
@@ -601,5 +638,5 @@ def train_impute_classifier(
             acc[i] = 1 - mean_absolute_percentage_error(
                 np.array(y_test), y_pred
             )  # MAPE
-
+    
     return acc, error, X_miss, X_miss_idx, X_imp, X_le
