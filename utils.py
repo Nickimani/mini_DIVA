@@ -14,6 +14,8 @@ from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from imputers.customMICEImputer import customMICEImputer
+from imputers.hotDeckImputer import hotDeckImputer
+from imputers.discriminativeImputer import discriminativeDLImputer
 import sklearn.neighbors._base
 import warnings
 
@@ -31,7 +33,7 @@ def read_dataset(dataset="iris", datapath=datapath):
         data = pd.read_csv(datapath + "Iris.csv")
         data = data.dropna().reset_index(drop=True)
         Xinds = list(range(4))
-        yind = 4  # set target variable
+        yind = 4  # set target variable index
 
     elif dataset == "automobile":
         data = pd.read_csv(datapath + "Automobile.csv")
@@ -98,7 +100,7 @@ def read_dataset(dataset="iris", datapath=datapath):
         data = pd.read_csv(datapath + "King_county.csv")
         data = data.dropna().reset_index(drop=True)
         Xinds = list(range(3, 21))
-        yind = 2
+        yind = 3
         
     elif dataset == "loan":
         # 36 columns, first 4 are unneccessary
@@ -111,7 +113,7 @@ def read_dataset(dataset="iris", datapath=datapath):
         data = pd.read_csv(datapath + "Customer_churn.csv")
         data = data.dropna().reset_index(drop=True)
         Xinds = list(range(13))
-        yind = 13
+        yind = 14
         
     elif dataset == "iran":
         data = pd.read_csv(datapath + "Iran_houses.csv")
@@ -120,10 +122,10 @@ def read_dataset(dataset="iris", datapath=datapath):
         yind = 6
         
     elif dataset == "marketing":
-        data = pd.read_csv(datapath + "Bank_marketing.csv", sep=";")
+        data = pd.read_csv(datapath + "Bank_marketing.csv")
         data = data.dropna().reset_index(drop=True)
-        Xinds = list(range(20))
-        yind = 20
+        Xinds = list(range(2, 20))
+        yind = 21
         
 
     X, y = data.iloc[:, Xinds], data.iloc[:, yind]
@@ -210,6 +212,7 @@ def set_fraction_missing(X, fraction=0.2, random_state=42):
         )
         random_state += 1
     X_miss_idx = X_miss.isnull()
+    
     return X_miss, X_miss_idx
 
 
@@ -362,7 +365,7 @@ def impute(
     ------------------------------------------------------------
     X_miss: pd.DataFrame, data with missing values
     X: pd.DataFrame, original
-    train_idx,test_idx: training and testing set indices for the split
+    train_idx, test_idx: training and testing set indices for the split
     encoding: {'label', 'one-hot'}, method for transforming categorical variables, default = 'label'
     method: str, imputation method
 
@@ -376,7 +379,7 @@ def impute(
 
     X_le = X.copy()
 
-    if train_idx is None or test_idx is None:
+    if (train_idx is None) or (test_idx is None):
         train_idx, test_idx = X.index, [0]
 
     # use label encoder to transform categorical variables into integer space
@@ -427,6 +430,16 @@ def impute(
             methodC="random_forest",
             solver="newton-cg",
         ),
+        # Nick changes
+        "hotDeck": hotDeckImputer(
+            num_vars,
+            cat_vars,
+            n_neighbors=6  # this can be changed later
+        ),
+        "discriminativeImputer": discriminativeDLImputer(
+            num_vars,
+            cat_vars,
+        )
     }
 
     # pre-define fit-transform hyperparameters here
@@ -455,9 +468,16 @@ def impute(
             columns=imputer.get_feature_names_out(),
         ).reindex(columns=X_imp.columns)
         X_imp.iloc[train_idx], X_imp.iloc[test_idx] = train_imp, test_imp
+    # Nick changes
+    elif method == "hotDeck":
+        X_imp.iloc[train_idx] = imputer.fit(X_miss_le.iloc[train_idx])
+        X_imp.iloc[test_idx] = imputer.transform(X_miss_le.iloc[test_idx])
+    elif method == "discriminativeImputer":
+        X_imp.iloc[train_idx] = imputer.fit(X_miss_le.iloc[train_idx])
+        X_imp.iloc[test_idx] = imputer.transform(X_miss_le.iloc[test_idx])
     else:
         raise ValueError(
-            "method must be one of: zero, mean, median, mode, MICE, customMICE."
+            "method must be one of: zero, mean, median, mode, MICE, customMICE, hotDeck."
         )
 
     # one hot decoding
