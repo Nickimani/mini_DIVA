@@ -1,9 +1,16 @@
 import numpy as np
 import pandas as pd
 import copy
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+import sys
+import subprocess
 
-class hotDeckImputer:
+# ensure that tensorflow is installed, if not install it
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Input, Dense, Dropout
+from tensorflow.keras import losses, metrics
+
+class discriminativeDLImputer:
 
     """
     Imputation method: Hot Deck imputation method)
@@ -15,9 +22,6 @@ class hotDeckImputer:
 
     categoricalCols : list
         Indices of the Categorical Columns
-
-    n_neighbors: int
-        Number of neighbors the imputer should use in creating a 'hot deck'
 
 
     Attributes
@@ -37,13 +41,10 @@ class hotDeckImputer:
     columns_ : Pandas Series
         A series of the headers of the Pandas Dataframe dataset
 
-    neighbors_: int
-        Number of neighbors the imputer should use in creating a 'hot deck'
-
     imputedValList : list
         A list containing all imputed values (means or modes), each value for each column of the dataset
 
-    modelDict : dict
+    modelDict : Dict
         A dictionary containing all savedModels, a model for each column in the dataset
     
     originalData : list
@@ -62,7 +63,7 @@ class hotDeckImputer:
     
     Example
     --------------------------------------------
-    hot_deck = hotDeckImputer(numerical_cols, categorical_cols, n_neighbors)
+    hot_deck = hotDeckImputer(numerical_cols, categorical_cols)
     outputTrain = hot_deck.fit(df_nanTrain)
     outputTest = hot_deck.transform(df_nanTest)
 
@@ -72,12 +73,9 @@ class hotDeckImputer:
             self, 
             numericalColumns: list,
             categoricalColumns: list,
-             n_neighbors: int
      ):
         self.numericalColumns = numericalColumns
         self.categoricalColumns = categoricalColumns
-        self.neighbors_ = n_neighbors
-
 
     def _impute(self, matrix: np.ndarray, target_col: int, train: bool):
         """
@@ -144,7 +142,7 @@ class hotDeckImputer:
         targetMatrix = [matrixCopy[row].pop(target_col) for row in range(len(matrix))]
 
         trainFeatures, trainTarget = [], []
-        testFeatures, testTarget = [], []
+        testFeatures = []
             
         for feature, target in zip(matrixCopy, targetMatrix):
             if target is not None:
@@ -157,45 +155,97 @@ class hotDeckImputer:
                     trainTarget.append(target)
 
             elif target is None:
-                testFeatures.append(feature)
-                testTarget.append(target)   
-
-        # print(f"""
-        #       Target Column is: {self.columns_[target_col].title()}
-        #       {trainTarget} \n 
-        #       {trainFeatures} \n 
-        #       {testFeatures} \n
-        #       {testTarget}
-        #       """)     
+                testFeatures.append(feature)               
+        
         
         # use classifier if categorical target column else use the regressor
         if train:
             if target_col in self.categoricalIndices:
-                model = KNeighborsClassifier(n_neighbors=self.neighbors_, weights='distance', n_jobs=-1)
-                model.fit(trainFeatures, trainTarget)
+                n_categories = len(np.unique(trainTarget))
+                if n_categories <= 2:            
+                    # instantiate the sequential model
+                    model = Sequential()
+                    # add the neccessary input, hidden, dropout and output layers
+                    model.add(Input(shape=(len(trainFeatures[0]), )))
+                    model.add(Dense(56, activation='relu'))
+                    model.add(Dropout(0.2))
+                    model.add(Dense(24, activation='relu'))
+                    model.add(Dropout(0.05))
+                    model.add(Dense(4, activation="sigmoid"))
+                    model.add(Dense(1))
+                    # compile the model, fit and use it for predictions
+                    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[metrics.CategoricalAccuracy()])
+                    model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
+                    # all columns in the dataset trained should have their respective models
+                    # however not always will you find that the target column has missing values
+                    # in a case where there are no missing values in the target, there will be no testFeatures
+                    # thus these conditions prevent the model throwing an error in such a case
+                    if len(testFeatures) > 0:
+                        predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
+                        predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]  # converting negative values in prediction to positive
+                        predictions = [1 if val > 1 else val for val in predictions]  # making sure there are no values greater than 1 since it should be binary
+                        predictions = [1 if val > 0.5 else 0 for val in predictions]  # rounding off the predictions to get either 0 or 1
+                    else:
+                        predictions = []
+
+                else:
+                    # instantiate the sequential model
+                    model = Sequential()
+                    # add the neccessary input, hidden, dropout and output layers
+                    model.add(Input(shape=(len(trainFeatures[0]), )))
+                    model.add(Dense(56, activation='relu'))
+                    model.add(Dropout(0.2))
+                    model.add(Dense(24, activation='relu'))
+                    model.add(Dropout(0.05))
+                    model.add(Dense(4, activation="softmax"))
+                    model.add(Dense(1))
+                    # compile the model, fit and use it for predictions
+                    model.compile(loss=losses.CategoricalCrossentropy(), optimizer='adam', metrics=[metrics.CategoricalAccuracy()])
+                    model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
+                    if len(testFeatures) > 0:
+                        predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
+                        predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]
+                        predictions = [round(val) for val in predictions]  # rounding off to get the nearest class
+                    else:
+                        predictions = []
+
 
             elif target_col in self.numericalIndices:
-                model = KNeighborsRegressor(n_neighbors=self.neighbors_, weights='distance', n_jobs=-1)
-                model.fit(trainFeatures, trainTarget)
-            
-            # all columns in the dataset trained should have their respective models
-            # however not always will you find that the target column has missing values
-            # in a case where there are no missing values in the target, there will be no testFeatures
-            # thus these conditions prevent the model throwing an error in such a case
-            if len(testFeatures) > 0:
-                predictions = model.predict(testFeatures).tolist()    
-            else:
-                predictions = []
+                model = Sequential()                
+                model.add(Input(shape=(len(trainFeatures[0]), )))  # input layer
+                model.add(Dense(56, activation='relu'))  # hidden layer
+                model.add(Dropout(0.2))
+                model.add(Dense(24, activation='relu'))  # hidden layer
+                model.add(Dropout(0.05))
+                model.add(Dense(4, activation="relu"))  # hidden layer
+                model.add(Dense(1))  # output layer
+                model.compile(loss=losses.MeanSquaredError(), optimizer='adam', metrics=[metrics.MeanSquaredError()])
+                model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
+                if len(testFeatures) > 0:
+                    predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
+                    predictions = [round(val, 2) for rec in predictions.tolist() for val in rec]
+                else:
+                    predictions = []
 
-            # adding trained model to dictionary of available models for testing
             self.modelDict[target_col] = model
-        
+
         else:
-            # print(self.modelDict)
             model = self.modelDict[target_col]
-            # same condition as used above
             if len(testFeatures) > 0:
-                predictions = model.predict(testFeatures).tolist()
+                if target_col in self.categoricalColumns:                    
+                    if n_categories <= 2:
+                        predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
+                        predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]  # converting negative values in prediction to positive
+                        predictions = [1 if val > 1 else val for val in predictions]  # making sure there are no values greater than 1 since it should be binary
+                        predictions = [1 if val > 0.5 else 0 for val in predictions]  # rounding off the predictions to get either 0 or 1
+                    else:
+                        predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
+                        predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]
+                        predictions = [round(val) for val in predictions]  # rounding off to get the nearest class
+                else:
+                    predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
+                    predictions = [val for rec in predictions.tolist() for val in rec]
+                
             else:
                 predictions = []
 
@@ -240,16 +290,11 @@ class hotDeckImputer:
         
         # create a mask for Null records
         nullRecordsMask = {idx: list() for idx in range(len(matrix[0]))}
-
         for col in range(len(matrix[0])):
             for row in range(len(matrix)):
-                if np.isnan(matrix[row][col]) or matrix[row][col] == None:
+                if np.isnan(matrix[row][col]):
                     nullRecordsMask[col].append(row)
-
-        # getting rid of columns with no missing values
-        nullRecordsMask = {idx: val for idx, val in nullRecordsMask.items() if len(val) != 0}
-
-        # print(nullRecordsMask, "\n")
+        
         # run the mean/mode imputation
         for col in range(len(matrix[0])):
             matrix = self._impute(matrix, col, train)
@@ -260,15 +305,11 @@ class hotDeckImputer:
         for target_col in range(len(matrix[0])):
             # since it does not matter whether it is training phase or not when it comes to model imputation
             # it does not matter because both train and test data fed to the imputer have missing values
-            if target_col in nullRecordsMask.keys():
-                nullIndices = nullRecordsMask[target_col]
-                for idx in nullIndices:
-                    matrix[idx][target_col] = None
-                matrix = self._runModel(matrix, target_col, train)
+            nullIndices = nullRecordsMask[target_col]
+            for idx in nullIndices:
+                matrix[idx][target_col] = None
 
-            else:
-                matrix = self._runModel(matrix, target_col, train)
-            
+            matrix = self._runModel(matrix, target_col, train)
             
         df = pd.DataFrame(matrix, columns=self.columns_)
 

@@ -35,7 +35,7 @@ class customMICEImputer:
         Possible options 'sags, 'saga', 'newton-cg', 'liblinear', 'lbfgs', etc.
 
     savedModel : object
-        The Regression model is saved internally after it is fit on the trainning data
+        The Regression model is saved internally after it is fit on the training data
         The model is later used in predicting for the test data
 
     savedModelsList : list
@@ -64,7 +64,7 @@ class customMICEImputer:
 
 
     Tips
-    ----
+    ---------
     For Dataset with only Numerical columns, try different iterations starting from 2. It is computationally less expensive.
     Try different methodN.
 
@@ -119,7 +119,7 @@ class customMICEImputer:
                 nonNullValues = []
                 for i in range(len(matrix)):
                     if not np.isnan(matrix[i][col]):
-                        nonNullValues.append(matrix[i][col])
+                        nonNullValues.append(matrix[i][col]) 
 
                 if len(nonNullValues) > 0:
                     val = sum(nonNullValues) / len(nonNullValues)
@@ -141,7 +141,7 @@ class customMICEImputer:
         else:
             val = self.savedImputedValList.pop(0)
 
-        # if val:
+        # filling in the nan values with the value chosen above
         for i in range(len(matrix)):
             if np.isnan(matrix[i][col]):
                 matrix[i][col] = val
@@ -168,8 +168,9 @@ class customMICEImputer:
 
         matrixTarget = [matrixFeature[row].pop(targetCol) for row in range(len(matrix))]
 
-        trainListFeatures, trainListTarget = [], []
-        testListFeatures = []
+        trainListFeatures, trainListTarget = [], []  # for non null values
+        testListFeatures = []  # for values to be filled
+        
         for valFeatures, valTarget in zip(matrixFeature, matrixTarget):
             if valTarget is not None:
                 trainListFeatures.append(valFeatures)
@@ -180,42 +181,49 @@ class customMICEImputer:
         if train:
             if method == "linear":
                 model = LinearRegression()
-                model.fit(trainListFeatures, trainListTarget)
-                predictionsList = list(model.predict(testListFeatures))
+                model.fit(trainListFeatures, trainListTarget)                
             elif method == "lasso":
                 model = Lasso(alpha=1.0)
-                model.fit(trainListFeatures, trainListTarget)
-                predictionsList = list(model.predict(testListFeatures))
+                model.fit(trainListFeatures, trainListTarget)                
             elif method == "ridge":
                 model = Ridge(alpha=1.0)
-                model.fit(trainListFeatures, trainListTarget)
-                predictionsList = list(model.predict(testListFeatures))
+                model.fit(trainListFeatures, trainListTarget)                
             elif method == "logistic":
                 model = LogisticRegression(
                     multi_class="multinomial",
                     solver=self.solver,
                 )
-                try:
-                    model.fit(trainListFeatures, trainListTarget)
-                    predictionsList = list(model.predict(testListFeatures))
-                except:  # for the case when there is only 1 class
-                    val = trainListTarget[0]
-                    model = val
-                    predictionsList = [val] * len(testListFeatures)
+                model.fit(trainListFeatures, trainListTarget)
+                # Nick's changes
+                # try:
+                    # model.fit(trainListFeatures, trainListTarget)
+                    # predictionsList = list(model.predict(testListFeatures))
+                # except:  # for the case when there is only 1 class
+                #     val = trainListTarget[0]
+                #     model = val
+                #     predictionsList = [val] * len(testListFeatures)
             elif method == "random_forest":
                 model = RandomForestClassifier()
                 model.fit(trainListFeatures, trainListTarget)
-                predictionsList = list(model.predict(testListFeatures))
             else:
                 raise ValueError("Invalid attribute value.")
+            # Nick's changes
+            # takes care of the error that occurs when the columns with missing values differ in the train and test set
+            if len(testListFeatures) > 0:
+                predictionsList = list(model.predict(testListFeatures))
+                predictionsList = [round(val, 2) for val in predictionsList]
+            else:
+                predictionsList = []
 
             self.savedModel = model
+        
+        # Nick's changes
         else:
             model = self.savedModelsList.pop(0)
             try:
                 predictionsList = list(model.predict(testListFeatures))
-            except:  # for the case when there is only 1 class
-                predictionsList = [model] * len(testListFeatures)
+            except:  # for the case when there are no missing values
+                predictionsList = []
 
         while len(predictionsList) > 0:
             for row in range(len(matrix)):
@@ -245,6 +253,7 @@ class customMICEImputer:
             prevMatrix: The intermediate matrix (only after _impute method)
         """
         categoricalColsIdx = []
+        
         for idx, val in enumerate(self.headers):
             if val in categoricalCols:
                 categoricalColsIdx.append(idx)
@@ -291,6 +300,8 @@ class customMICEImputer:
         subtractedMatrix = [
             [0 for _ in range(len(matrix1[0]))] for _ in range(len(matrix1))
         ]
+        
+        # basically gets the error between the "mean and median" filled values and the regressed predictions filled values
         for i in range(len(matrix1)):
             for j in range(len(matrix1[0])):
                 subtractedMatrix[i][j] = matrix1[i][j] - matrix2[i][j]
@@ -306,6 +317,8 @@ class customMICEImputer:
             squareSummed: Squared sum of the elements of the input matrix
         """
         squareSummed = 0
+        
+        # basically squares the error computed from the subtractMatrices method
         for row in range(len(matrix)):
             for col in range(len(matrix[0])):
                 squareSummed += matrix[row][col] ** 2
@@ -337,6 +350,7 @@ class customMICEImputer:
 
         # main part
         noneIndices = {}
+        
         for col in range(len(dataset[0])):
             for row in range(len(dataset)):
                 if np.isnan(dataset[row][col]):
@@ -345,6 +359,7 @@ class customMICEImputer:
                         rowList.append(row)
                         noneIndices[col] = rowList
                     except:
+                        # where there is only 1 missing value
                         noneIndices[col] = [row]
 
         self.solver = solver
@@ -359,7 +374,9 @@ class customMICEImputer:
             if squareSummed <= threshold:
                 df = pd.DataFrame(matrix, columns=headers)
                 return df
+                
         df = pd.DataFrame(matrix, columns=headers)
+        
         return df
 
     def fit(self, df):
