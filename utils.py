@@ -15,7 +15,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from imputers.customMICEImputer import customMICEImputer
 from imputers.hotDeckImputer import hotDeckImputer
-from imputers.discriminativeImputer import discriminativeDLImputer
 import sklearn.neighbors._base
 import warnings
 
@@ -435,10 +434,6 @@ def impute(
             num_vars,
             cat_vars,
             n_neighbors=6  # this can be changed later
-        ),
-        "discriminativeImputer": discriminativeDLImputer(
-            num_vars,
-            cat_vars,
         )
     }
 
@@ -470,10 +465,7 @@ def impute(
         X_imp.iloc[train_idx], X_imp.iloc[test_idx] = train_imp, test_imp
     # Nick changes
     elif method == "hotDeck":
-        X_imp.iloc[train_idx] = imputer.fit(X_miss_le.iloc[train_idx])
-        X_imp.iloc[test_idx] = imputer.transform(X_miss_le.iloc[test_idx])
-    elif method == "discriminativeImputer":
-        X_imp.iloc[train_idx] = imputer.fit(X_miss_le.iloc[train_idx])
+        X_imp.iloc[train_idx] = imputer.fit(X_miss_le.iloc[train_idx].replace({np.nan: 0}))
         X_imp.iloc[test_idx] = imputer.transform(X_miss_le.iloc[test_idx])
     else:
         raise ValueError(
