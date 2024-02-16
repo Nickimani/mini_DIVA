@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import copy
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from imblearn.over_sampling import SMOTE
 
 class hotDeckImputer:
 
@@ -43,15 +44,15 @@ class hotDeckImputer:
     imputedValList : list
         A list containing all imputed values (means or modes), each value for each column of the dataset
 
-    modelDict : list
-        A list containing all savedModels, each model for each column of the dataset
+    modelDict : dict
+        A dictionary containing all savedModels, a model for each column in the dataset
     
     originalData : list
-        It is a list of lists, converted from the Pandas Dataframe dataset
+        A list of lists, converted from the original Pandas Dataframe dataset
         The original list is stored internally before any following operations
 
     intermediateData : list
-        It is a list of lists. 
+        A list of lists. 
         The original data after being imputed with the mean/mode of the respective column
 
 
@@ -85,13 +86,13 @@ class hotDeckImputer:
 
         Inputs:
         ------------------------------------------------------------
-        matrix: np.array, Sparse matrix 
-        target_col: int, Index of column to be imputed
-        train: bool, Whether it is running in the training phase or not
+            matrix: np.array, Sparse matrix 
+            target_col: int, Index of column to be imputed
+            train: bool, Whether it is running in the training phase or not
 
         Outputs:
         ------------------------------------------------------------
-        matrix: np.array, Matrix with the target column imputed with either mean or mode
+            matrix: np.array, Matrix with the target column imputed with either mean or mode
         """
         # obtain imputing values from the non-null records in the data fed in the training phase
         if train:            
@@ -132,13 +133,13 @@ class hotDeckImputer:
         
         Inputs:
         ------------------------------------------------------------
-        matrix: np.array, A matrix of imputed variables except the target variable
-        target_col: int, Index of the target variable,
-        train: bool, Whether it is the training phase or not
+            matrix: np.array, A matrix of imputed variables except the target variable
+            target_col: int, Index of the target variable,
+            train: bool, Whether it is the training phase or not
 
         Outputs:
         ------------------------------------------------------------
-        matrix: np.array, Matrix with target column imputed by a regressor
+            matrix: np.array, Matrix with target column imputed by a regressor
         """
         matrixCopy = copy.deepcopy(matrix)
         targetMatrix = [matrixCopy[row].pop(target_col) for row in range(len(matrix))]
@@ -159,26 +160,41 @@ class hotDeckImputer:
             elif target is None:
                 testFeatures.append(feature)
                 testTarget.append(target)   
-
-        # print(f"""
-        #       Target Column is: {self.columns_[target_col].title()}
-        #       {trainTarget} \n 
-        #       {trainFeatures} \n 
-        #       {testFeatures} \n
-        #       {testTarget}
-        #       """)     
         
         # use classifier if categorical target column else use the regressor
         if train:
             if target_col in self.categoricalIndices:
+                # perform smote on train data
+                try:
+                    sampler = SMOTE(k_neighbors=3, random_state=42)
+                    trainFeaturesRes, trainTargetRes = sampler.fit_resample(trainFeatures, trainTarget)
+                # in a case where there are less than 4 records of the minority class
+                except ValueError:
+                    trainFeaturesRes, trainTargetRes = trainFeatures, trainTarget
+
                 model = KNeighborsClassifier(n_neighbors=self.neighbors_, weights='distance', n_jobs=-1)
-                model.fit(trainFeatures, trainTarget)
+                model.fit(trainFeaturesRes, trainTargetRes)
 
             elif target_col in self.numericalIndices:
+                # remove extreme outliers from the data
+                qt_1, qt_3 = np.quantile(trainTarget, 0.25), np.quantile(trainTarget, 0.75)
+                IQR = qt_3 - qt_1
+                # using (2 * IQR) as the threshold for outliers 
+                upper_limit = qt_3 + (2*IQR)
+                lower_limit = qt_1 - (2*IQR) # maybe remove lower limit
+                trainFeaturesRes, trainTargetRes = [], []
+                # dropping the outliers
+                for _, record in zip(trainFeatures, trainTarget):
+                    if record <= upper_limit and record >= lower_limit:
+                        trainFeaturesRes.append(_)
+                        trainTargetRes.append(record)
+                    else:
+                        continue
+
                 model = KNeighborsRegressor(n_neighbors=self.neighbors_, weights='distance', n_jobs=-1)
-                model.fit(trainFeatures, trainTarget)
+                model.fit(trainFeaturesRes, trainTargetRes)
             
-            # all columns in the dataset traines have their respective models
+            # all columns in the dataset trained should have their respective models
             # however not always will you find that the target column has missing values
             # in a case where there are no missing values in the target, there will be no testFeatures
             # thus these conditions prevent the model throwing an error in such a case
@@ -191,7 +207,6 @@ class hotDeckImputer:
             self.modelDict[target_col] = model
         
         else:
-            # print(self.modelDict)
             model = self.modelDict[target_col]
             # same condition as used above
             if len(testFeatures) > 0:
@@ -215,12 +230,12 @@ class hotDeckImputer:
         
         Inputs:
         ------------------------------------------------------------
-        dataframe: pd.DataFrame, The data to be used in either training or testing the imputer
-        train: bool, Whether it is the training phase or not
+            dataframe: pd.DataFrame, The data to be used in either training or testing the imputer
+            train: bool, Whether it is the training phase or not
 
         Outputs:
         ------------------------------------------------------------
-        dataframe: pd.DataFrame, Dataframe with all null values imputed with the hot deck method
+            dataframe: pd.DataFrame, Dataframe with all null values imputed with the hot deck method
         """
         self.columns_ = dataframe.columns.to_list()
         matrix = dataframe.values.tolist()
@@ -249,7 +264,6 @@ class hotDeckImputer:
         # getting rid of columns with no missing values
         nullRecordsMask = {idx: val for idx, val in nullRecordsMask.items() if len(val) != 0}
 
-        # print(nullRecordsMask, "\n")
         # run the mean/mode imputation
         for col in range(len(matrix[0])):
             matrix = self._impute(matrix, col, train)
