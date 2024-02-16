@@ -43,15 +43,15 @@ class hotDeckImputer:
     imputedValList : list
         A list containing all imputed values (means or modes), each value for each column of the dataset
 
-    modelDict : dict
-        A dictionary containing all savedModels, a model for each column in the dataset
+    modelDict : list
+        A list containing all savedModels, each model for each column of the dataset
     
     originalData : list
-        A list of lists, converted from the original Pandas Dataframe dataset
+        It is a list of lists, converted from the Pandas Dataframe dataset
         The original list is stored internally before any following operations
 
     intermediateData : list
-        A list of lists. 
+        It is a list of lists. 
         The original data after being imputed with the mean/mode of the respective column
 
 
@@ -85,13 +85,13 @@ class hotDeckImputer:
 
         Inputs:
         ------------------------------------------------------------
-            matrix: np.array, Sparse matrix 
-            target_col: int, Index of column to be imputed
-            train: bool, Whether it is running in the training phase or not
+        matrix: np.array, Sparse matrix 
+        target_col: int, Index of column to be imputed
+        train: bool, Whether it is running in the training phase or not
 
         Outputs:
         ------------------------------------------------------------
-            matrix: np.array, Matrix with the target column imputed with either mean or mode
+        matrix: np.array, Matrix with the target column imputed with either mean or mode
         """
         # obtain imputing values from the non-null records in the data fed in the training phase
         if train:            
@@ -132,13 +132,13 @@ class hotDeckImputer:
         
         Inputs:
         ------------------------------------------------------------
-            matrix: np.array, A matrix of imputed variables except the target variable
-            target_col: int, Index of the target variable,
-            train: bool, Whether it is the training phase or not
+        matrix: np.array, A matrix of imputed variables except the target variable
+        target_col: int, Index of the target variable,
+        train: bool, Whether it is the training phase or not
 
         Outputs:
         ------------------------------------------------------------
-            matrix: np.array, Matrix with target column imputed by a regressor
+        matrix: np.array, Matrix with target column imputed by a regressor
         """
         matrixCopy = copy.deepcopy(matrix)
         targetMatrix = [matrixCopy[row].pop(target_col) for row in range(len(matrix))]
@@ -178,7 +178,7 @@ class hotDeckImputer:
                 model = KNeighborsRegressor(n_neighbors=self.neighbors_, weights='distance', n_jobs=-1)
                 model.fit(trainFeatures, trainTarget)
             
-            # all columns in the dataset trained should have their respective models
+            # all columns in the dataset traines have their respective models
             # however not always will you find that the target column has missing values
             # in a case where there are no missing values in the target, there will be no testFeatures
             # thus these conditions prevent the model throwing an error in such a case
@@ -215,12 +215,12 @@ class hotDeckImputer:
         
         Inputs:
         ------------------------------------------------------------
-            dataframe: pd.DataFrame, The data to be used in either training or testing the imputer
-            train: bool, Whether it is the training phase or not
+        dataframe: pd.DataFrame, The data to be used in either training or testing the imputer
+        train: bool, Whether it is the training phase or not
 
         Outputs:
         ------------------------------------------------------------
-            dataframe: pd.DataFrame, Dataframe with all null values imputed with the hot deck method
+        dataframe: pd.DataFrame, Dataframe with all null values imputed with the hot deck method
         """
         self.columns_ = dataframe.columns.to_list()
         matrix = dataframe.values.tolist()
