@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import copy
+from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from imblearn.over_sampling import SMOTE
 
@@ -146,7 +147,8 @@ class hotDeckImputer:
 
         trainFeatures, trainTarget = [], []
         testFeatures, testTarget = [], []
-            
+        self.decomposerList = []
+
         for feature, target in zip(matrixCopy, targetMatrix):
             if target is not None:
                 # making sure target variable records are integers to prevent errors when training the model
@@ -161,14 +163,27 @@ class hotDeckImputer:
                 testFeatures.append(feature)
                 testTarget.append(target)   
         
-        # use classifier if categorical target column else use the regressor
         if train:
+            # first get explained variances
+            pca_1 = PCA(random_state=42) 
+            pca_1.fit(trainFeatures)
+            variance, n_components = 0, 0
+            for val in pca_1.explained_variance_ratio_:
+                if variance <= 0.999999999:
+                    variance += val
+                    n_components += 1
+            # perform PCA on the data
+            decomposer = PCA(n_components=n_components, random_state=42)
+            trainFeatures = decomposer.fit_transform(trainFeatures)            
+            self.decomposerList.append(decomposer)
+            
             if target_col in self.categoricalIndices:
-                # perform smote on train data
+                # perform smote on the data
                 try:
-                    sampler = SMOTE(k_neighbors=3, random_state=42)
+                    sampler = SMOTE(k_neighbors=4, random_state=42)
                     trainFeaturesRes, trainTargetRes = sampler.fit_resample(trainFeatures, trainTarget)
-                # in a case where there are less than 4 records of the minority class
+                # in a case where there are less than 5 records of the minority class
+                # prevents introducing bias from duplicating 5 records across the sample space 
                 except ValueError:
                     trainFeaturesRes, trainTargetRes = trainFeatures, trainTarget
 
@@ -179,7 +194,7 @@ class hotDeckImputer:
                 # remove extreme outliers from the data
                 qt_1, qt_3 = np.quantile(trainTarget, 0.25), np.quantile(trainTarget, 0.75)
                 IQR = qt_3 - qt_1
-                # using (2 * IQR) as the threshold for outliers 
+                # using (2 * IQR) as the threshold for outliers instead of usual 1.5 to prevent loss of too much data
                 upper_limit = qt_3 + (2*IQR)
                 lower_limit = qt_1 - (2*IQR) # maybe remove lower limit
                 trainFeaturesRes, trainTargetRes = [], []
@@ -190,8 +205,8 @@ class hotDeckImputer:
                         trainTargetRes.append(record)
                     else:
                         continue
-
-                model = KNeighborsRegressor(n_neighbors=self.neighbors_, weights='distance', n_jobs=-1)
+                    
+                model = KNeighborsRegressor(n_neighbors=self.neighbors_, weights='uniform', n_jobs=-1)
                 model.fit(trainFeaturesRes, trainTargetRes)
             
             # all columns in the dataset trained should have their respective models
@@ -199,6 +214,7 @@ class hotDeckImputer:
             # in a case where there are no missing values in the target, there will be no testFeatures
             # thus these conditions prevent the model throwing an error in such a case
             if len(testFeatures) > 0:
+                testFeatures = decomposer.transform(testFeatures)
                 predictions = model.predict(testFeatures).tolist()    
             else:
                 predictions = []
@@ -208,8 +224,12 @@ class hotDeckImputer:
         
         else:
             model = self.modelDict[target_col]
+            decomposer = self.decomposerList.pop(0)
             # same condition as used above
             if len(testFeatures) > 0:
+                # perform PCA on test Data
+                testFeatures = decomposer.transform(testFeatures)
+                # get the predictions
                 predictions = model.predict(testFeatures).tolist()
             else:
                 predictions = []
