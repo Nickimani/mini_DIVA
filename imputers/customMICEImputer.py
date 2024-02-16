@@ -6,7 +6,7 @@ from sklearn.linear_model import Lasso
 from sklearn.linear_model import Ridge
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-
+from imblearn.over_sampling import SMOTE
 
 class customMICEImputer:
 
@@ -168,8 +168,8 @@ class customMICEImputer:
 
         matrixTarget = [matrixFeature[row].pop(targetCol) for row in range(len(matrix))]
 
-        trainListFeatures, trainListTarget = [], []  # for non null values
-        testListFeatures = []  # for values to be filled
+        trainListFeatures, trainListTarget = [], []
+        testListFeatures = []
         
         for valFeatures, valTarget in zip(matrixFeature, matrixTarget):
             if valTarget is not None:
@@ -179,32 +179,49 @@ class customMICEImputer:
                 testListFeatures.append(valFeatures)
 
         if train:
+            # Nick's changes
+            if targetCol in self.categoricalColsIdx:
+                # perform smote on the data
+                try:
+                    sampler = SMOTE(k_neighbors=4, random_state=42)
+                    trainFeaturesRes, trainTargetRes = sampler.fit_resample(trainListFeatures, trainListTarget)
+                except ValueError:
+                    trainFeaturesRes, trainTargetRes = trainListFeatures, trainListTarget
+
+            else:
+                # remove extreme outliers from the data
+                qt_1, qt_3 = np.quantile(trainListTarget, 0.25), np.quantile(trainListTarget, 0.75)
+                IQR = qt_3 - qt_1
+                upper_limit = qt_3 + (2*IQR)
+                lower_limit = qt_1 - (2*IQR)
+                trainFeaturesRes, trainTargetRes = [], []
+                # dropping the outliers
+                for _, record in zip(trainListFeatures, trainListTarget):
+                    if record <= upper_limit and record >= lower_limit:
+                        trainFeaturesRes.append(_)
+                        trainTargetRes.append(record)
+                    else:
+                        continue
+
+
             if method == "linear":
                 model = LinearRegression()
-                model.fit(trainListFeatures, trainListTarget)                
+                model.fit(trainFeaturesRes, trainTargetRes)                
             elif method == "lasso":
                 model = Lasso(alpha=1.0)
-                model.fit(trainListFeatures, trainListTarget)                
+                model.fit(trainFeaturesRes, trainTargetRes)                
             elif method == "ridge":
                 model = Ridge(alpha=1.0)
-                model.fit(trainListFeatures, trainListTarget)                
+                model.fit(trainFeaturesRes, trainTargetRes)                
             elif method == "logistic":
                 model = LogisticRegression(
                     multi_class="multinomial",
                     solver=self.solver,
                 )
-                model.fit(trainListFeatures, trainListTarget)
-                # Nick's changes
-                # try:
-                    # model.fit(trainListFeatures, trainListTarget)
-                    # predictionsList = list(model.predict(testListFeatures))
-                # except:  # for the case when there is only 1 class
-                #     val = trainListTarget[0]
-                #     model = val
-                #     predictionsList = [val] * len(testListFeatures)
+                model.fit(trainFeaturesRes, trainTargetRes)
             elif method == "random_forest":
                 model = RandomForestClassifier()
-                model.fit(trainListFeatures, trainListTarget)
+                model.fit(trainFeaturesRes, trainTargetRes)
             else:
                 raise ValueError("Invalid attribute value.")
             # Nick's changes
@@ -257,6 +274,8 @@ class customMICEImputer:
         for idx, val in enumerate(self.headers):
             if val in categoricalCols:
                 categoricalColsIdx.append(idx)
+
+        self.categoricalColsIdx = categoricalColsIdx
 
         for col in range(len(matrix[0])):
             if col in categoricalColsIdx:
