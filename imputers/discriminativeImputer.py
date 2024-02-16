@@ -3,9 +3,10 @@ import pandas as pd
 import copy
 import sys
 import subprocess
+from sklearn.preprocessing import MinMaxScaler
 
 # ensure that tensorflow is installed, if not install it
-subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
+# subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, Dense, Dropout
 from tensorflow.keras import losses, metrics
@@ -139,6 +140,15 @@ class discriminativeDLImputer:
             matrix: np.array, Matrix with target column imputed by a regressor
         """
         matrixCopy = copy.deepcopy(matrix)
+        # normalizing the numerical variables save for the target column
+        for col in matrixCopy[0]:
+            if col in self.numericalIndices and col is not target_col:
+                # min max scale the numerical data to make it suitable for a deep learner
+                scaler = MinMaxScaler()
+                trans_col = scaler.fit_transform(matrixCopy[:][col])
+                matrixCopy[:][col] = trans_col
+
+        # separate the target col for the rest of the data
         targetMatrix = [matrixCopy[row].pop(target_col) for row in range(len(matrix))]
 
         trainFeatures, trainTarget = [], []
@@ -189,9 +199,7 @@ class discriminativeDLImputer:
                         predictions = []
 
                 else:
-                    # instantiate the sequential model
                     model = Sequential()
-                    # add the neccessary input, hidden, dropout and output layers
                     model.add(Input(shape=(len(trainFeatures[0]), )))
                     model.add(Dense(56, activation='relu'))
                     model.add(Dropout(0.2))
@@ -199,7 +207,6 @@ class discriminativeDLImputer:
                     model.add(Dropout(0.05))
                     model.add(Dense(4, activation="softmax"))
                     model.add(Dense(1))
-                    # compile the model, fit and use it for predictions
                     model.compile(loss=losses.CategoricalCrossentropy(), optimizer='adam', metrics=[metrics.CategoricalAccuracy()])
                     model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
                     if len(testFeatures) > 0:
@@ -209,16 +216,18 @@ class discriminativeDLImputer:
                     else:
                         predictions = []
 
-
+            # for numerical variables
             elif target_col in self.numericalIndices:
                 model = Sequential()                
-                model.add(Input(shape=(len(trainFeatures[0]), )))  # input layer
-                model.add(Dense(56, activation='relu'))  # hidden layer
+                model.add(Input(shape=(len(trainFeatures[0]), )))
+                model.add(Dense(48, activation='relu'))
                 model.add(Dropout(0.2))
-                model.add(Dense(24, activation='relu'))  # hidden layer
-                model.add(Dropout(0.05))
-                model.add(Dense(4, activation="relu"))  # hidden layer
-                model.add(Dense(1))  # output layer
+                model.add(Dense(24, activation='relu'))
+                model.add(Dense(12, activation='relu'))
+                model.add(Dense(6, activation="relu"))
+                model.add(Dropout(0.05))                
+                model.add(Dense(2, activation="relu"))
+                model.add(Dense(1))
                 model.compile(loss=losses.MeanSquaredError(), optimizer='adam', metrics=[metrics.MeanSquaredError()])
                 model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
                 if len(testFeatures) > 0:
@@ -235,13 +244,13 @@ class discriminativeDLImputer:
                 if target_col in self.categoricalColumns:                    
                     if n_categories <= 2:
                         predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
-                        predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]  # converting negative values in prediction to positive
-                        predictions = [1 if val > 1 else val for val in predictions]  # making sure there are no values greater than 1 since it should be binary
-                        predictions = [1 if val > 0.5 else 0 for val in predictions]  # rounding off the predictions to get either 0 or 1
+                        predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]
+                        predictions = [1 if val > 1 else val for val in predictions]
+                        predictions = [1 if val > 0.5 else 0 for val in predictions]
                     else:
                         predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
                         predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]
-                        predictions = [round(val) for val in predictions]  # rounding off to get the nearest class
+                        predictions = [round(val) for val in predictions]
                 else:
                     predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
                     predictions = [val for rec in predictions.tolist() for val in rec]
