@@ -7,6 +7,7 @@ from sklearn.linear_model import Ridge
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from imblearn.over_sampling import SMOTE
+from sklearn.decomposition import PCA
 
 class customMICEImputer:
 
@@ -90,8 +91,8 @@ class customMICEImputer:
         categoricalCols,
         threshold=0,
         iteration=2,
-        methodN="linear",
-        methodC="logistic",
+        methodN="ridge",
+        methodC="random_forest",
         solver="sag",
     ):
         self.numericalCols = numericalCols
@@ -170,6 +171,7 @@ class customMICEImputer:
 
         trainListFeatures, trainListTarget = [], []
         testListFeatures = []
+        self.decomposerList = []
         
         for valFeatures, valTarget in zip(matrixFeature, matrixTarget):
             if valTarget is not None:
@@ -180,6 +182,18 @@ class customMICEImputer:
 
         if train:
             # Nick's changes
+            pca_1 = PCA(random_state=42) 
+            pca_1.fit(trainListFeatures)
+            variance, n_components = 0, 0
+            for val in pca_1.explained_variance_ratio_:
+                if variance <= 0.999999999:
+                    variance += val
+                    n_components += 1
+            # perform PCA on the data
+            decomposer = PCA(n_components=n_components, random_state=42)
+            trainListFeatures = decomposer.fit_transform(trainListFeatures)            
+            self.decomposerList.append(decomposer)
+
             if targetCol in self.categoricalColsIdx:
                 # perform smote on the data
                 try:
@@ -227,6 +241,7 @@ class customMICEImputer:
             # Nick's changes
             # takes care of the error that occurs when the columns with missing values differ in the train and test set
             if len(testListFeatures) > 0:
+                testListFeatures = decomposer.transform(testListFeatures)
                 predictionsList = list(model.predict(testListFeatures))
                 predictionsList = [round(val, 2) for val in predictionsList]
             else:
@@ -236,8 +251,10 @@ class customMICEImputer:
         
         # Nick's changes
         else:
+            decomposer = self.decomposerList.pop(0)
             model = self.savedModelsList.pop(0)
             try:
+                testListFeatures = decomposer.transform(testListFeatures)
                 predictionsList = list(model.predict(testListFeatures))
             except:  # for the case when there are no missing values
                 predictionsList = []
