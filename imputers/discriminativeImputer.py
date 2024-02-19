@@ -4,6 +4,7 @@ import copy
 import sys
 import subprocess
 from sklearn.preprocessing import MinMaxScaler
+from imblearn.over_sampling import SMOTE
 
 # ensure that tensorflow is installed, if not install it
 # subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'tensorflow'])
@@ -172,6 +173,14 @@ class discriminativeDLImputer:
         if train:
             if target_col in self.categoricalIndices:
                 n_categories = len(np.unique(trainTarget))
+
+                # perform smote on the data
+                try:
+                    sampler = SMOTE(k_neighbors=4, random_state=42)
+                    trainFeatures, trainTarget = sampler.fit_resample(trainFeatures, trainTarget)
+                except ValueError:
+                    trainFeatures, trainTarget = trainFeatures, trainTarget
+
                 if n_categories <= 2:            
                     # instantiate the sequential model
                     model = Sequential()
@@ -185,7 +194,13 @@ class discriminativeDLImputer:
                     model.add(Dense(1))
                     # compile the model, fit and use it for predictions
                     model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[metrics.CategoricalAccuracy()])
-                    model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
+                    model.fit(np.asarray(trainFeatures).astype(np.float32), 
+                              np.asarray(trainTarget).astype(np.float32), 
+                              epochs=100, 
+                              verbose=0, 
+                              batch_size=len(trainFeatures[0]), 
+                              validation_split=0.2)
+                    
                     # all columns in the dataset trained should have their respective models
                     # however not always will you find that the target column has missing values
                     # in a case where there are no missing values in the target, there will be no testFeatures
@@ -208,7 +223,13 @@ class discriminativeDLImputer:
                     model.add(Dense(4, activation="softmax"))
                     model.add(Dense(1))
                     model.compile(loss=losses.CategoricalCrossentropy(), optimizer='adam', metrics=[metrics.CategoricalAccuracy()])
-                    model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
+                    model.fit(np.asarray(trainFeatures).astype(np.float32), 
+                              np.asarray(trainTarget).astype(np.float32), 
+                              epochs=100, 
+                              verbose=0, 
+                              batch_size=len(trainFeatures[0]), 
+                              validation_split=0.2)
+                    
                     if len(testFeatures) > 0:
                         predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
                         predictions = [val*-1 if val < 0 else val for _ in predictions.tolist() for val in _]
@@ -218,8 +239,23 @@ class discriminativeDLImputer:
 
             # for numerical variables
             elif target_col in self.numericalIndices:
+                # remove extreme outliers from the data
+                qt_1, qt_3 = np.quantile(trainTarget, 0.25), np.quantile(trainTarget, 0.75)
+                IQR = qt_3 - qt_1
+                # using (2 * IQR) as the threshold for outliers instead of usual 1.5 to prevent loss of too much data
+                upper_limit = qt_3 + (2*IQR)
+                lower_limit = qt_1 - (2*IQR) # maybe remove lower limit
+                trainFeaturesRes, trainTargetRes = [], []
+                # dropping the outliers
+                for _, record in zip(trainFeatures, trainTarget):
+                    if record <= upper_limit and record >= lower_limit:
+                        trainFeaturesRes.append(_)
+                        trainTargetRes.append(record)
+                    else:
+                        continue
+
                 model = Sequential()                
-                model.add(Input(shape=(len(trainFeatures[0]), )))
+                model.add(Input(shape=(len(trainFeaturesRes[0]), )))
                 model.add(Dense(48, activation='relu'))
                 model.add(Dropout(0.2))
                 model.add(Dense(24, activation='relu'))
@@ -229,7 +265,13 @@ class discriminativeDLImputer:
                 model.add(Dense(2, activation="relu"))
                 model.add(Dense(1))
                 model.compile(loss=losses.MeanSquaredError(), optimizer='adam', metrics=[metrics.MeanSquaredError()])
-                model.fit(np.asarray(trainFeatures).astype(np.float32), np.asarray(trainTarget).astype(np.float32), epochs=100, verbose=0, batch_size=len(trainFeatures[0]), validation_split=0.2)
+                model.fit(np.asarray(trainFeaturesRes).astype(np.float32), 
+                          np.asarray(trainTargetRes).astype(np.float32), 
+                          epochs=100, 
+                          verbose=0, 
+                          batch_size=len(trainFeaturesRes[0]), 
+                          validation_split=0.2)
+                
                 if len(testFeatures) > 0:
                     predictions = model.predict(np.asarray(testFeatures).astype(np.float32))
                     predictions = [round(val, 2) for rec in predictions.tolist() for val in rec]
